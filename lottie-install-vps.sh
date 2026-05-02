@@ -1,48 +1,28 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-APP_DIR="/var/www/html/lottie"
-BACKUP_DIR="/var/www/html/lottie_backup_$(date +%Y%m%d_%H%M%S)"
+APP_DIR="${APP_DIR:-/var/www/html/lottie}"
+APP_FILE="$APP_DIR/index.html"
+BACKUP_DIR="${APP_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
 
-need_root() {
-  if [ "$(id -u)" -ne 0 ]; then
-    echo "Please run as root: sudo bash $0"
-    exit 1
-  fi
-}
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Please run as root: sudo bash $0"
+  exit 1
+fi
 
-install_nginx() {
-  if command -v apt-get >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y nginx curl
-    systemctl enable nginx
-    systemctl restart nginx
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y nginx curl
-    systemctl enable nginx
-    systemctl restart nginx
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y epel-release || true
-    yum install -y nginx curl
-    systemctl enable nginx
-    systemctl restart nginx
-  else
-    echo "Unsupported OS package manager. Install nginx manually, then re-run."
-    exit 1
-  fi
-}
+echo "Safe Apache/static installer starting..."
+echo "This script will NOT stop/restart nginx, apache2, ocserv, openvpn, v2ray, or any panel service."
+echo "Install path: $APP_DIR"
 
-write_index() {
-  mkdir -p "$APP_DIR"
+mkdir -p "$APP_DIR"
 
-  if [ -f "$APP_DIR/index.html" ]; then
-    mkdir -p "$BACKUP_DIR"
-    cp -a "$APP_DIR/." "$BACKUP_DIR/"
-    echo "Backup saved to: $BACKUP_DIR"
-  fi
+if [ -f "$APP_FILE" ]; then
+  mkdir -p "$BACKUP_DIR"
+  cp -a "$APP_DIR/." "$BACKUP_DIR/"
+  echo "Backup saved: $BACKUP_DIR"
+fi
 
-  cat > "$APP_DIR/index.html" <<'HTML'
+cat > "$APP_FILE" <<'HTML'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -67,17 +47,8 @@ write_index() {
     color:var(--text);
     background:linear-gradient(180deg,#010615 0%,#03102a 100%);
   }
-  .page{
-    max-width:1020px;
-    margin:20px auto;
-    padding:0 12px;
-  }
-  .wrap{
-    display:grid;
-    grid-template-columns:320px 1fr;
-    gap:16px;
-    align-items:stretch;
-  }
+  .page{max-width:1020px;margin:20px auto;padding:0 12px}
+  .wrap{display:grid;grid-template-columns:320px 1fr;gap:16px;align-items:stretch}
   .panel{
     background:linear-gradient(180deg,var(--panel),var(--panel2));
     border:1px solid var(--line);
@@ -116,12 +87,7 @@ write_index() {
     margin-top:8px;
   }
   .btn:disabled{opacity:.55;cursor:not-allowed}
-  .status{
-    margin-top:14px;
-    font-size:13px;
-    color:#fff;
-    min-height:18px;
-  }
+  .status{margin-top:14px;font-size:13px;color:#fff;min-height:18px}
   .preview{padding:14px}
   .preview h2{margin-bottom:14px}
   .previewShell{
@@ -188,10 +154,7 @@ write_index() {
   .mini{font-size:12px;color:var(--muted)}
   .summary{margin-top:10px;font-size:12px;color:var(--muted);line-height:1.4}
   .pill{display:inline-block;font-size:11px;background:rgba(255,255,255,.1);padding:3px 8px;border-radius:999px;margin-left:6px}
-  @media (max-width:860px){
-    .wrap{grid-template-columns:1fr}
-    .previewShell{height:420px}
-  }
+  @media (max-width:860px){.wrap{grid-template-columns:1fr}.previewShell{height:420px}}
 
   @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   @keyframes spinReverse{from{transform:rotate(0deg)}to{transform:rotate(-360deg)}}
@@ -307,9 +270,8 @@ write_index() {
       <button class="btn" id="downloadBtn" disabled>Download Lottie JSON</button>
       <div class="status" id="status">Ready</div>
       <div class="summary">
-        Fix included:<br>
-        1) size বড় করলেও spin only spin করবে, auto-zoom bug থাকবে না<br>
-        2) এখানে 40+ animation style আছে এবং dropdown-এ full list show করবে
+        Safe static version: no backend, no NodeJS, no Nginx required.<br>
+        Size বড় করলেও spin only spin করবে — transform conflict fixed.
       </div>
     </div>
 
@@ -325,7 +287,7 @@ write_index() {
           </div>
         </div>
       </div>
-      <div class="summary">Preview আলাদা wrapper ব্যবহার করে, তাই size slider আর animation transform একে অন্যকে overwrite করবে না।</div>
+      <div class="summary">Preview wrapper separated: size control আর animation transform আর conflict করবে না।</div>
     </div>
   </div>
 </div>
@@ -344,35 +306,9 @@ write_index() {
   ];
 
   const $ = (id) => document.getElementById(id);
-  const fileEl = $('file');
-  const animEl = $('anim');
-  const speedEl = $('speed');
-  const sizeEl = $('size');
-  const widthEl = $('width');
-  const heightEl = $('height');
-  const bgEl = $('bg');
-  const transparentEl = $('transparent');
-  const compressEl = $('compressPx');
-  const downloadBtn = $('downloadBtn');
-  const statusEl = $('status');
-  const previewStage = $('previewStage');
-  const previewShell = $('previewShell');
-  const placeholder = $('placeholder');
-  const animShell = $('animShell');
-  const animTarget = $('animTarget');
-  const previewImg = $('previewImg');
-  const speedVal = $('speedVal');
-  const sizeVal = $('sizeVal');
-  const styleCount = $('styleCount');
+  const fileEl = $('file'), animEl = $('anim'), speedEl = $('speed'), sizeEl = $('size'), widthEl = $('width'), heightEl = $('height'), bgEl = $('bg'), transparentEl = $('transparent'), compressEl = $('compressPx'), downloadBtn = $('downloadBtn'), statusEl = $('status'), previewStage = $('previewStage'), placeholder = $('placeholder'), animShell = $('animShell'), animTarget = $('animTarget'), previewImg = $('previewImg'), speedVal = $('speedVal'), sizeVal = $('sizeVal'), styleCount = $('styleCount');
 
-  let state = {
-    originalDataUrl: '',
-    dataUrl: '',
-    imageWidth: 0,
-    imageHeight: 0,
-    processedWidth: 0,
-    processedHeight: 0,
-  };
+  let state = { originalDataUrl:'', dataUrl:'', imageWidth:0, imageHeight:0, processedWidth:0, processedHeight:0 };
 
   animEl.innerHTML = animations.map(([v,n]) => `<option value="${v}">${n}</option>`).join('');
   styleCount.textContent = `${animations.length} styles`;
@@ -387,27 +323,24 @@ write_index() {
     floatRotate:'ease-in-out', bounceX:'ease-in-out', snap:'ease-out', fadeZoom:'ease-in-out'
   };
 
-  function setStatus(msg) { statusEl.textContent = msg; }
+  function setStatus(msg){ statusEl.textContent = msg; }
+  function updatePreviewBackground(){ previewStage.style.background = transparentEl.checked ? 'transparent' : bgEl.value; }
 
-  function updatePreviewBackground() {
-    previewStage.style.background = transparentEl.checked ? 'transparent' : bgEl.value;
-  }
-
-  function fitBaseSize() {
+  function fitBaseSize(){
     if (!state.dataUrl) return {w:200,h:200};
     const maxBox = 220;
     const iw = state.processedWidth || state.imageWidth || 200;
     const ih = state.processedHeight || state.imageHeight || 200;
     const ratio = Math.min(maxBox / iw, maxBox / ih, 1);
-    return { w: Math.max(20, Math.round(iw * ratio)), h: Math.max(20, Math.round(ih * ratio)) };
+    return { w:Math.max(20, Math.round(iw * ratio)), h:Math.max(20, Math.round(ih * ratio)) };
   }
 
-  function updatePreview() {
+  function updatePreview(){
     speedVal.textContent = Number(speedEl.value).toFixed(1);
     sizeVal.textContent = sizeEl.value;
     updatePreviewBackground();
 
-    if (!state.dataUrl) {
+    if (!state.dataUrl){
       placeholder.style.display = 'block';
       animShell.style.display = 'none';
       downloadBtn.disabled = true;
@@ -431,133 +364,72 @@ write_index() {
     animTarget.style.animation = `${anim} ${duration}s infinite ${timingMap[anim] || 'linear'}`;
   }
 
-  function resizeDataUrl(dataUrl, maxDim) {
-    return new Promise((resolve, reject) => {
+  function resizeDataUrl(dataUrl, maxDim){
+    return new Promise((resolve,reject)=>{
       const img = new Image();
       img.onload = () => {
-        let w = img.naturalWidth;
-        let h = img.naturalHeight;
-        const originalW = w;
-        const originalH = h;
-        if (maxDim > 0) {
-          const ratio = Math.min(1, maxDim / Math.max(w, h));
+        let w = img.naturalWidth, h = img.naturalHeight;
+        const originalW = w, originalH = h;
+        if (maxDim > 0){
+          const ratio = Math.min(1, maxDim / Math.max(w,h));
           w = Math.max(1, Math.round(w * ratio));
           h = Math.max(1, Math.round(h * ratio));
         }
         const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
+        canvas.width = w; canvas.height = h;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0,0,w,h);
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve({ dataUrl: canvas.toDataURL('image/png'), originalW, originalH, w, h });
+        ctx.drawImage(img,0,0,w,h);
+        resolve({dataUrl:canvas.toDataURL('image/png'), originalW, originalH, w, h});
       };
       img.onerror = reject;
       img.src = dataUrl;
     });
   }
 
-  fileEl.addEventListener('change', async (e) => {
+  fileEl.addEventListener('change', async (e)=>{
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setStatus('Loading image...');
-    try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const originalDataUrl = reader.result;
-          const compressed = await resizeDataUrl(originalDataUrl, parseInt(compressEl.value || '384', 10));
-          state.originalDataUrl = originalDataUrl;
-          state.dataUrl = compressed.dataUrl;
-          state.imageWidth = compressed.originalW;
-          state.imageHeight = compressed.originalH;
-          state.processedWidth = compressed.w;
-          state.processedHeight = compressed.h;
-          updatePreview();
-          setStatus(`Image ready (${compressed.w}x${compressed.h})`);
-        } catch (err) {
-          console.error(err);
-          setStatus('Image process failed');
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error(err);
-      setStatus('Image load failed');
-    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try{
+        const compressed = await resizeDataUrl(reader.result, parseInt(compressEl.value || '384', 10));
+        state.originalDataUrl = reader.result;
+        state.dataUrl = compressed.dataUrl;
+        state.imageWidth = compressed.originalW;
+        state.imageHeight = compressed.originalH;
+        state.processedWidth = compressed.w;
+        state.processedHeight = compressed.h;
+        updatePreview();
+        setStatus(`Image ready (${compressed.w}x${compressed.h})`);
+      }catch(err){
+        console.error(err);
+        setStatus('Image process failed');
+      }
+    };
+    reader.readAsDataURL(file);
   });
 
-  [animEl, speedEl, sizeEl, widthEl, heightEl, bgEl, transparentEl, compressEl].forEach(el => {
-    el.addEventListener('input', updatePreview);
-    el.addEventListener('change', updatePreview);
+  [animEl,speedEl,sizeEl,widthEl,heightEl,bgEl,transparentEl,compressEl].forEach(el=>{
+    el.addEventListener('input',updatePreview);
+    el.addEventListener('change',updatePreview);
   });
 
   function ease1(){ return {i:{x:[0.667],y:[1]},o:{x:[0.333],y:[0]}}; }
   function ease2(n=3){ return {i:{x:new Array(n).fill(0.667),y:new Array(n).fill(1)},o:{x:new Array(n).fill(0.333),y:new Array(n).fill(0)}}; }
+  function kf1(values,total){const out=[],last=values.length-1,step=total/last;for(let i=0;i<values.length;i++){const t=Math.round(i*step);if(i<last)out.push(Object.assign({t,s:[values[i]],e:[values[i+1]]},ease1()));else out.push({t,s:[values[i]]});}return out;}
+  function kf2(values,total){const out=[],last=values.length-1,step=total/last;for(let i=0;i<values.length;i++){const t=Math.round(i*step),cur=[values[i][0],values[i][1],0];if(i<last){const next=[values[i+1][0],values[i+1][1],0];out.push(Object.assign({t,s:cur,e:next},ease2(3)));}else out.push({t,s:cur});}return out;}
+  function kfS(values,total){const out=[],last=values.length-1,step=total/last;for(let i=0;i<values.length;i++){const t=Math.round(i*step),cur=[values[i][0],values[i][1],100];if(i<last){const next=[values[i+1][0],values[i+1][1],100];out.push(Object.assign({t,s:cur,e:next},ease2(3)));}else out.push({t,s:cur});}return out;}
+  function cycleFrames(){ return Math.max(24, Math.round(Number(speedEl.value || 2) * 60)); }
 
-  function kf1(values, total) {
-    const out=[];
-    const last=values.length-1;
-    const step = total / last;
-    for (let i=0;i<values.length;i++) {
-      const t = Math.round(i * step);
-      if (i < last) out.push(Object.assign({t, s:[values[i]], e:[values[i+1]]}, ease1()));
-      else out.push({t, s:[values[i]]});
-    }
-    return out;
-  }
-
-  function kf2(values, total) {
-    const out=[];
-    const last=values.length-1;
-    const step = total / last;
-    for (let i=0;i<values.length;i++) {
-      const t = Math.round(i * step);
-      const current = [values[i][0], values[i][1], 0];
-      if (i < last) {
-        const next = [values[i+1][0], values[i+1][1], 0];
-        out.push(Object.assign({t, s:current, e:next}, ease2(3)));
-      } else out.push({t, s:current});
-    }
-    return out;
-  }
-
-  function kfS(values, total) {
-    const out=[];
-    const last=values.length-1;
-    const step = total / last;
-    for (let i=0;i<values.length;i++) {
-      const t = Math.round(i * step);
-      const current = [values[i][0], values[i][1], 100];
-      if (i < last) {
-        const next = [values[i+1][0], values[i+1][1], 100];
-        out.push(Object.assign({t, s:current, e:next}, ease2(3)));
-      } else out.push({t, s:current});
-    }
-    return out;
-  }
-
-  function cycleFrames() {
-    return Math.max(24, Math.round(Number(speedEl.value || 2) * 60));
-  }
-
-  function exportMotion(name, w, h) {
-    const total = cycleFrames();
-    const cx = Math.round(w / 2);
-    const cy = Math.round(h / 2);
-    const dx = Math.round(Math.min(w, h) * 0.10) || 40;
-    const dy = Math.round(Math.min(w, h) * 0.12) || 48;
-    const motion = {
-      o:{a:0,k:100},
-      r:{a:0,k:0},
-      p:{a:0,k:[cx,cy,0]},
-      s:{a:0,k:[100,100,100]}
-    };
+  function exportMotion(name,w,h){
+    const total = cycleFrames(), cx = Math.round(w/2), cy = Math.round(h/2), dx = Math.round(Math.min(w,h)*0.10)||40, dy = Math.round(Math.min(w,h)*0.12)||48;
+    const motion = {o:{a:0,k:100}, r:{a:0,k:0}, p:{a:0,k:[cx,cy,0]}, s:{a:0,k:[100,100,100]}};
     const setPos = vals => motion.p = {a:1,k:kf2(vals,total)};
     const setRot = vals => motion.r = {a:1,k:kf1(vals,total)};
     const setOpa = vals => motion.o = {a:1,k:kf1(vals,total)};
     const setSca = vals => motion.s = {a:1,k:kfS(vals,total)};
-
     switch(name){
       case 'spin': setRot([0,360]); break;
       case 'spinReverse': setRot([0,-360]); break;
@@ -614,14 +486,12 @@ write_index() {
       case 'fadeZoom': setSca([[100,100],[125,125],[100,100]]); setOpa([100,40,100]); break;
       default: setRot([0,360]);
     }
-    return { total, motion };
+    return {total,motion};
   }
 
-  function dataUrlToBase64(dataUrl) {
-    return dataUrl.split(',')[1] || '';
-  }
+  function dataUrlToBase64(dataUrl){ return dataUrl.split(',')[1] || ''; }
 
-  function buildLottieJson() {
+  function buildLottieJson(){
     if (!state.dataUrl) throw new Error('No image selected');
     const w = Math.max(16, parseInt(widthEl.value || '800', 10));
     const h = Math.max(16, parseInt(heightEl.value || '800', 10));
@@ -629,23 +499,21 @@ write_index() {
     const imgH = state.processedHeight || state.imageHeight || 200;
     const bgColor = transparentEl.checked ? null : bgEl.value;
     const sizeFactor = Math.max(0.1, Number(sizeEl.value || '100') / 100);
-    const { total, motion } = exportMotion(animEl.value, w, h);
-    if (motion.s.a === 0) {
+    const {total,motion} = exportMotion(animEl.value,w,h);
+
+    if (motion.s.a === 0){
       motion.s.k = [motion.s.k[0] * sizeFactor, motion.s.k[1] * sizeFactor, 100];
     } else {
-      motion.s.k = motion.s.k.map((kf, idx) => {
-        if (idx === motion.s.k.length - 1 && kf.s) return { ...kf, s:[kf.s[0]*sizeFactor, kf.s[1]*sizeFactor, 100] };
-        if (kf.s && kf.e) return { ...kf, s:[kf.s[0]*sizeFactor, kf.s[1]*sizeFactor, 100], e:[kf.e[0]*sizeFactor, kf.e[1]*sizeFactor, 100] };
+      motion.s.k = motion.s.k.map((kf,idx)=>{
+        if (idx === motion.s.k.length - 1 && kf.s) return {...kf, s:[kf.s[0]*sizeFactor,kf.s[1]*sizeFactor,100]};
+        if (kf.s && kf.e) return {...kf, s:[kf.s[0]*sizeFactor,kf.s[1]*sizeFactor,100], e:[kf.e[0]*sizeFactor,kf.e[1]*sizeFactor,100]};
         return kf;
       });
     }
 
-    const base64 = dataUrlToBase64(state.dataUrl);
     const layers = [];
-    if (bgColor) {
-      const r = parseInt(bgColor.slice(1,3),16)/255;
-      const g = parseInt(bgColor.slice(3,5),16)/255;
-      const b = parseInt(bgColor.slice(5,7),16)/255;
+    if (bgColor){
+      const r=parseInt(bgColor.slice(1,3),16)/255, g=parseInt(bgColor.slice(3,5),16)/255, b=parseInt(bgColor.slice(5,7),16)/255;
       layers.push({
         ddd:0, ind:1, ty:1, nm:'Background', sr:1,
         ks:{o:{a:0,k:100}, r:{a:0,k:0}, p:{a:0,k:[w/2,h/2,0]}, a:{a:0,k:[0,0,0]}, s:{a:0,k:[100,100,100]}},
@@ -660,72 +528,35 @@ write_index() {
 
     const imageLayerInd = layers.length + 1;
     layers.push({
-      ddd:0,
-      ind:imageLayerInd,
-      ty:2,
-      nm:'Image Layer',
-      refId:'image_0',
-      sr:1,
-      ks:{
-        o:motion.o,
-        r:motion.r,
-        p:motion.p,
-        a:{a:0,k:[imgW/2,imgH/2,0]},
-        s:motion.s
-      },
-      ip:0,
-      op:total,
-      st:0,
-      bm:0
+      ddd:0, ind:imageLayerInd, ty:2, nm:'Image Layer', refId:'image_0', sr:1,
+      ks:{o:motion.o, r:motion.r, p:motion.p, a:{a:0,k:[imgW/2,imgH/2,0]}, s:motion.s},
+      ip:0, op:total, st:0, bm:0
     });
 
     return {
-      v:'5.7.15',
-      fr:60,
-      ip:0,
-      op:total,
-      w,
-      h,
-      nm:'PNG to Lottie Export',
-      ddd:0,
-      assets:[{
-        id:'image_0',
-        w:imgW,
-        h:imgH,
-        u:'',
-        p:'data:image/png;base64,' + base64,
-        e:1
-      }],
+      v:'5.7.15', fr:60, ip:0, op:total, w, h, nm:'PNG to Lottie Export', ddd:0,
+      assets:[{id:'image_0', w:imgW, h:imgH, u:'', p:'data:image/png;base64,' + dataUrlToBase64(state.dataUrl), e:1}],
       layers,
-      meta:{
-        generator:'Fast PNG to Lottie Maker',
-        animation:animEl.value,
-        transparent:transparentEl.checked,
-        speedSeconds:Number(speedEl.value),
-        sizePercent:Number(sizeEl.value)
-      }
+      meta:{generator:'Fast PNG to Lottie Maker Safe Static', animation:animEl.value, transparent:transparentEl.checked, speedSeconds:Number(speedEl.value), sizePercent:Number(sizeEl.value)}
     };
   }
 
-  function downloadJson(data, filename) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  function downloadJson(data,filename){
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
 
-  downloadBtn.addEventListener('click', () => {
-    try {
+  downloadBtn.addEventListener('click',()=>{
+    try{
       const json = buildLottieJson();
       const safeName = (animEl.value || 'animation').replace(/[^a-z0-9_-]/gi,'_');
       downloadJson(json, `lottie_${safeName}.json`);
       setStatus(`Downloaded: lottie_${safeName}.json`);
-    } catch (err) {
+    }catch(err){
       console.error(err);
       setStatus('Download failed: ' + err.message);
     }
@@ -737,20 +568,17 @@ write_index() {
 </body>
 </html>
 HTML
-}
 
-post_message() {
-  echo ""
-  echo "==========================================="
-  echo "Lottie maker installed successfully"
-  echo "Path: $APP_DIR"
-  echo "URL : http://YOUR_SERVER_IP/lottie/"
-  echo "==========================================="
-  echo ""
-}
+chmod 755 "$APP_DIR"
+chmod 644 "$APP_FILE"
 
-need_root
-install_nginx
-write_index
-systemctl restart nginx || true
-post_message
+if command -v chown >/dev/null 2>&1; then
+  chown -R root:root "$APP_DIR" || true
+fi
+
+echo ""
+echo "Done. No services were stopped or restarted."
+echo "Open: http://YOUR_SERVER_IP/lottie/"
+echo ""
+echo "Check command:"
+echo "curl -I http://127.0.0.1/lottie/"
