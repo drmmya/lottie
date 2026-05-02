@@ -1,44 +1,48 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -e
 
 APP_DIR="/var/www/html/lottie"
-INDEX_FILE="$APP_DIR/index.html"
+BACKUP_DIR="/var/www/html/lottie_backup_$(date +%Y%m%d_%H%M%S)"
 
-if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-  echo "Please run as root: sudo bash install-lottie-maker.sh"
-  exit 1
-fi
+need_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "Please run as root: sudo bash $0"
+    exit 1
+  fi
+}
 
-echo "==> Installing PNG to Lottie Maker..."
+install_nginx() {
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y nginx curl
+    systemctl enable nginx
+    systemctl restart nginx
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y nginx curl
+    systemctl enable nginx
+    systemctl restart nginx
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y epel-release || true
+    yum install -y nginx curl
+    systemctl enable nginx
+    systemctl restart nginx
+  else
+    echo "Unsupported OS package manager. Install nginx manually, then re-run."
+    exit 1
+  fi
+}
 
-# Install and enable a web server when possible.
-if command -v apt-get >/dev/null 2>&1; then
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
-  apt-get install -y nginx
-  systemctl enable nginx >/dev/null 2>&1 || true
-  systemctl restart nginx >/dev/null 2>&1 || true
-elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y nginx
-  systemctl enable nginx >/dev/null 2>&1 || true
-  systemctl restart nginx >/dev/null 2>&1 || true
-elif command -v yum >/dev/null 2>&1; then
-  yum install -y nginx
-  systemctl enable nginx >/dev/null 2>&1 || true
-  systemctl restart nginx >/dev/null 2>&1 || true
-else
-  echo "No supported package manager found. I will only create the files."
-fi
+write_index() {
+  mkdir -p "$APP_DIR"
 
-mkdir -p "$APP_DIR"
+  if [ -f "$APP_DIR/index.html" ]; then
+    mkdir -p "$BACKUP_DIR"
+    cp -a "$APP_DIR/." "$BACKUP_DIR/"
+    echo "Backup saved to: $BACKUP_DIR"
+  fi
 
-if [ -f "$INDEX_FILE" ]; then
-  BACKUP_FILE="$INDEX_FILE.backup.$(date +%Y%m%d_%H%M%S)"
-  cp "$INDEX_FILE" "$BACKUP_FILE"
-  echo "Backup created: $BACKUP_FILE"
-fi
-
-cat > "$INDEX_FILE" <<'HTML'
+  cat > "$APP_DIR/index.html" <<'HTML'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,383 +51,706 @@ cat > "$INDEX_FILE" <<'HTML'
 <title>Fast PNG to Lottie Maker</title>
 <style>
   :root{
-    --bg:#020617; --panel:#111827; --panel2:#0f172a; --border:#334155;
-    --text:#fff; --muted:#cbd5e1; --accent:#0ea5e9; --green:#16a34a;
+    --bg:#030d22;
+    --panel:#091934;
+    --panel2:#0b1d3f;
+    --line:rgba(255,255,255,.14);
+    --text:#f6f8ff;
+    --muted:#bed0ff;
+    --accent:#22c55e;
+    --accent2:#1d4ed8;
   }
   *{box-sizing:border-box}
   body{
-    margin:0; min-height:100vh; background:var(--bg); color:var(--text);
-    font-family:Arial,Helvetica,sans-serif; font-size:14px;
+    margin:0;
+    font-family:Arial,Helvetica,sans-serif;
+    color:var(--text);
+    background:linear-gradient(180deg,#010615 0%,#03102a 100%);
   }
-  .wrap{max-width:980px; margin:20px auto; padding:0 10px; display:grid; grid-template-columns:304px 1fr; gap:16px}
-  .card{background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:16px; box-shadow:0 12px 35px rgba(0,0,0,.25)}
-  h1,h2{margin:12px 0 16px; font-size:21px; line-height:1.15}
-  h2{font-size:20px}
-  p{margin:0 0 12px; color:#fff; line-height:1.35; font-weight:700}
-  label{display:block; margin:10px 0 6px; font-weight:700}
-  input,select,button{width:100%; border-radius:9px; border:1px solid var(--border); background:#020617; color:#fff; padding:10px; font-weight:700}
-  input[type=file]{padding:8px}
-  input[type=range]{accent-color:var(--accent); padding:0; height:22px}
-  input[type=color]{height:36px; padding:3px}
-  input[type=checkbox]{width:auto; vertical-align:middle; accent-color:var(--accent)}
-  button{background:var(--green); border:none; margin-top:12px; cursor:pointer}
-  button:disabled{background:#475569; cursor:not-allowed; opacity:.75}
-  .row{display:grid; grid-template-columns:1fr 1fr; gap:8px}
-  .mini{font-size:12px; color:var(--muted); margin-top:5px; min-height:16px}
-  .checkrow{display:flex; align-items:center; gap:7px; margin:12px 0 4px; font-weight:700; line-height:1.3}
-  .checkrow input{flex:0 0 auto}
-  .status{margin-top:14px; font-weight:700}
-  .stage{
-    height:483px; display:flex; align-items:center; justify-content:center; overflow:hidden;
-    border:1px dashed #475569; border-radius:18px; position:relative;
-    background-color:#1e293b;
-    background-image:linear-gradient(45deg,rgba(255,255,255,.06) 25%,transparent 25%),linear-gradient(-45deg,rgba(255,255,255,.06) 25%,transparent 25%),linear-gradient(45deg,transparent 75%,rgba(255,255,255,.06) 75%),linear-gradient(-45deg,transparent 75%,rgba(255,255,255,.06) 75%);
-    background-size:24px 24px; background-position:0 0,0 12px,12px -12px,-12px 0;
+  .page{
+    max-width:1020px;
+    margin:20px auto;
+    padding:0 12px;
   }
-  .placeholder{font-weight:800; text-align:center}
-  #previewImg{max-width:80%; max-height:80%; object-fit:contain; transform-origin:center center; display:none; will-change:transform,opacity,filter}
-  .footer-tools{display:grid; grid-template-columns:1fr 1fr; gap:8px}
-  .secondary{background:#0ea5e9}
-  @media(max-width:820px){.wrap{grid-template-columns:1fr}.stage{height:360px}}
+  .wrap{
+    display:grid;
+    grid-template-columns:320px 1fr;
+    gap:16px;
+    align-items:stretch;
+  }
+  .panel{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);
+    border-radius:18px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+  }
+  .sidebar{padding:16px}
+  h1,h2,h3,p{margin:0}
+  h2{font-size:18px;font-weight:700;margin-bottom:10px}
+  .sub{font-size:14px;line-height:1.4;color:#fff;margin-bottom:14px}
+  .field{margin:10px 0}
+  label{display:block;font-size:14px;margin-bottom:6px}
+  input[type="file"], select, input[type="number"], input[type="text"]{
+    width:100%;
+    background:#000c2c;
+    color:#fff;
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:10px;
+    padding:10px 12px;
+    outline:none;
+  }
+  input[type="number"]{height:32px;padding:6px 10px}
+  input[type="range"]{width:100%}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .inline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .inline input[type="checkbox"]{margin:0}
+  .btn{
+    width:100%;
+    border:0;
+    cursor:pointer;
+    border-radius:10px;
+    background:#1eb34b;
+    color:#fff;
+    font-weight:700;
+    padding:12px 14px;
+    margin-top:8px;
+  }
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .status{
+    margin-top:14px;
+    font-size:13px;
+    color:#fff;
+    min-height:18px;
+  }
+  .preview{padding:14px}
+  .preview h2{margin-bottom:14px}
+  .previewShell{
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:18px;
+    height:480px;
+    padding:12px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01)),
+      linear-gradient(135deg, rgba(255,255,255,.05) 25%, transparent 25%) 0 0/18px 18px,
+      linear-gradient(225deg, rgba(255,255,255,.05) 25%, transparent 25%) 0 0/18px 18px,
+      linear-gradient(315deg, rgba(255,255,255,.05) 25%, transparent 25%) 0 0/18px 18px,
+      linear-gradient(45deg, rgba(255,255,255,.05) 25%, transparent 25%) 0 0/18px 18px,
+      #0a1734;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    position:relative;
+  }
+  .previewStage{
+    width:100%;
+    height:100%;
+    position:relative;
+    border-radius:14px;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .placeholder{
+    color:#fff;
+    font-weight:700;
+    font-size:22px;
+    text-align:center;
+    opacity:.96;
+    pointer-events:none;
+  }
+  .animShell{
+    position:absolute;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    pointer-events:none;
+  }
+  .animTarget{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transform-origin:center center;
+    will-change:transform,opacity;
+  }
+  #previewImg{
+    display:block;
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    pointer-events:none;
+    user-select:none;
+  }
+  .mini{font-size:12px;color:var(--muted)}
+  .summary{margin-top:10px;font-size:12px;color:var(--muted);line-height:1.4}
+  .pill{display:inline-block;font-size:11px;background:rgba(255,255,255,.1);padding:3px 8px;border-radius:999px;margin-left:6px}
+  @media (max-width:860px){
+    .wrap{grid-template-columns:1fr}
+    .previewShell{height:420px}
+  }
 
-  @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-  @keyframes spinReverse{from{transform:rotate(360deg)}to{transform:rotate(0)}}
-  @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-110px)}}
-  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.35)}}
-  @keyframes fade{0%,100%{opacity:1}50%{opacity:.18}}
-  @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-38px)}40%{transform:translateX(38px)}60%{transform:translateX(-24px)}80%{transform:translateX(24px)}}
-  @keyframes swing{0%,100%{transform:rotate(0)}20%{transform:rotate(22deg)}40%{transform:rotate(-18deg)}60%{transform:rotate(12deg)}80%{transform:rotate(-8deg)}}
-  @keyframes wobble{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-38px) rotate(-8deg)}50%{transform:translateX(28px) rotate(6deg)}75%{transform:translateX(-18px) rotate(-4deg)}}
-  @keyframes flipX{0%,100%{transform:rotateX(0)}50%{transform:rotateX(180deg)}}
-  @keyframes flipY{0%,100%{transform:rotateY(0)}50%{transform:rotateY(180deg)}}
-  @keyframes zoom{0%,100%{transform:scale(.7)}50%{transform:scale(1.45)}}
-  @keyframes slideLeft{0%,100%{transform:translateX(150px)}50%{transform:translateX(-150px)}}
-  @keyframes slideRight{0%,100%{transform:translateX(-150px)}50%{transform:translateX(150px)}}
-  @keyframes slideUp{0%,100%{transform:translateY(130px)}50%{transform:translateY(-130px)}}
-  @keyframes slideDown{0%,100%{transform:translateY(-130px)}50%{transform:translateY(130px)}}
-  @keyframes orbit{0%{transform:rotate(0) translateX(115px) rotate(0)}100%{transform:rotate(360deg) translateX(115px) rotate(-360deg)}}
-  @keyframes heartbeat{0%,100%{transform:scale(1)}15%{transform:scale(1.25)}30%{transform:scale(1)}45%{transform:scale(1.4)}60%{transform:scale(1)}}
-  @keyframes rubber{0%,100%{transform:scale(1)}25%{transform:scale(1.35,.72)}50%{transform:scale(.78,1.28)}75%{transform:scale(1.12,.9)}}
-  @keyframes tada{0%,100%{transform:scale(1) rotate(0)}15%,35%,55%,75%{transform:scale(1.15) rotate(-12deg)}25%,45%,65%,85%{transform:scale(1.15) rotate(12deg)}}
-  @keyframes jello{0%,100%{transform:skewX(0)}25%{transform:skewX(-18deg)}50%{transform:skewX(14deg)}75%{transform:skewX(-8deg)}}
-  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-45px)}}
-  @keyframes pop{0%{transform:scale(.1);opacity:0}45%{transform:scale(1.25);opacity:1}70%{transform:scale(.9)}100%{transform:scale(1);opacity:1}}
-  @keyframes blink{0%,48%,100%{opacity:1}50%,70%{opacity:0}}
-  @keyframes diagonal{0%,100%{transform:translate(-120px,90px)}50%{transform:translate(120px,-90px)}}
-  @keyframes rotateScale{0%,100%{transform:rotate(0) scale(.8)}50%{transform:rotate(180deg) scale(1.45)}}
-  @keyframes pendulum{0%,100%{transform:rotate(-35deg)}50%{transform:rotate(35deg)}}
-  @keyframes skew{0%,100%{transform:skew(0,0)}50%{transform:skew(22deg,8deg)}}
-  @keyframes breathe{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.18);filter:brightness(1.35)}}
-  @keyframes blurPulse{0%,100%{filter:blur(0);opacity:1}50%{filter:blur(5px);opacity:.62}}
-  @keyframes rotateIn{0%{transform:rotate(-220deg) scale(.15);opacity:0}100%{transform:rotate(0) scale(1);opacity:1}}
-  @keyframes roll{0%{transform:translateX(-180px) rotate(-360deg)}100%{transform:translateX(180px) rotate(360deg)}}
-  @keyframes wave{0%,100%{transform:rotate(0)}15%{transform:rotate(25deg)}30%{transform:rotate(-15deg)}45%{transform:rotate(18deg)}60%{transform:rotate(-9deg)}}
-  @keyframes vanish{0%{transform:scale(1);opacity:1}100%{transform:scale(0);opacity:0}}
-  @keyframes drop{0%{transform:translateY(-180px);opacity:0}60%{transform:translateY(25px);opacity:1}80%{transform:translateY(-10px)}100%{transform:translateY(0)}}
-  @keyframes rise{0%{transform:translateY(180px);opacity:0}100%{transform:translateY(0);opacity:1}}
-  @keyframes leftIn{0%{transform:translateX(-240px);opacity:0}100%{transform:translateX(0);opacity:1}}
-  @keyframes rightIn{0%{transform:translateX(240px);opacity:0}100%{transform:translateX(0);opacity:1}}
-  @keyframes squeeze{0%,100%{transform:scale(1,1)}50%{transform:scale(1.55,.55)}}
-  @keyframes stretch{0%,100%{transform:scale(1,1)}50%{transform:scale(.58,1.55)}}
-  @keyframes zigzag{0%,100%{transform:translate(0,0)}25%{transform:translate(90px,-70px)}50%{transform:translate(-90px,-10px)}75%{transform:translate(70px,70px)}}
-  @keyframes circleZoom{0%{transform:rotate(0) translateX(70px) scale(.85)}50%{transform:rotate(180deg) translateX(70px) scale(1.35)}100%{transform:rotate(360deg) translateX(70px) scale(.85)}}
-  @keyframes flash{0%,50%,100%{opacity:1}25%,75%{opacity:.1}}
-  @keyframes rotateBounce{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-100px) rotate(180deg)}}
+  @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+  @keyframes spinReverse{from{transform:rotate(0deg)}to{transform:rotate(-360deg)}}
+  @keyframes bounce{0%,100%{transform:translateY(0)}25%{transform:translateY(-110px)}50%{transform:translateY(0)}75%{transform:translateY(-55px)}}
+  @keyframes bounceSoft{0%,100%{transform:translateY(0)}50%{transform:translateY(-50px)}}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+  @keyframes pulseSoft{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-42px)}}
+  @keyframes floatX{0%,100%{transform:translateX(0)}50%{transform:translateX(42px)}}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-18px)}40%{transform:translateX(18px)}60%{transform:translateX(-12px)}80%{transform:translateX(12px)}}
+  @keyframes shakeSoft{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+  @keyframes swing{0%,100%{transform:rotate(0)}25%{transform:rotate(12deg)}75%{transform:rotate(-12deg)}}
+  @keyframes swingSoft{0%,100%{transform:rotate(0)}25%{transform:rotate(6deg)}75%{transform:rotate(-6deg)}}
+  @keyframes wobble{0%,100%{transform:translateX(0) rotate(0)}15%{transform:translateX(-18px) rotate(-5deg)}30%{transform:translateX(14px) rotate(4deg)}45%{transform:translateX(-12px) rotate(-3deg)}60%{transform:translateX(10px) rotate(2deg)}75%{transform:translateX(-6px) rotate(-1deg)}}
+  @keyframes wobbleX{0%,100%{transform:translateX(0)}20%{transform:translateX(-28px)}40%{transform:translateX(22px)}60%{transform:translateX(-16px)}80%{transform:translateX(10px)}}
+  @keyframes flash{0%,100%{opacity:1}25%{opacity:.2}50%{opacity:1}75%{opacity:.2}}
+  @keyframes blink{0%,45%,100%{opacity:1}50%,95%{opacity:0}}
+  @keyframes fadeInOut{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes zoomInOut{0%,100%{transform:scale(1)}50%{transform:scale(1.3)}}
+  @keyframes zoomIn{0%{transform:scale(.7)}100%{transform:scale(1)}}
+  @keyframes zoomOut{0%{transform:scale(1.3)}100%{transform:scale(1)}}
+  @keyframes slideUpDown{0%,100%{transform:translateY(55px)}50%{transform:translateY(-55px)}}
+  @keyframes slideLeftRight{0%,100%{transform:translateX(-80px)}50%{transform:translateX(80px)}}
+  @keyframes roll{0%{transform:translateX(-100px) rotate(0deg)}100%{transform:translateX(100px) rotate(360deg)}}
+  @keyframes rollReverse{0%{transform:translateX(100px) rotate(0deg)}100%{transform:translateX(-100px) rotate(-360deg)}}
+  @keyframes bob{0%,100%{transform:translateY(0)}25%{transform:translateY(-18px)}50%{transform:translateY(0)}75%{transform:translateY(-8px)}}
+  @keyframes hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-130px)}}
+  @keyframes pop{0%{transform:scale(.4)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
+  @keyframes breathe{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.06);opacity:.92}}
+  @keyframes rubberBand{0%,100%{transform:scale(1,1)}30%{transform:scale(1.25,.75)}40%{transform:scale(.75,1.25)}55%{transform:scale(1.15,.85)}75%{transform:scale(.95,1.05)}}
+  @keyframes jello{0%,100%{transform:none}22%{transform:skewX(-12deg) skewY(-6deg)}33%{transform:skewX(8deg) skewY(4deg)}44%{transform:skewX(-5deg) skewY(-3deg)}55%{transform:skewX(3deg) skewY(2deg)}}
+  @keyframes tada{0%,100%{transform:scale(1)}10%,20%{transform:scale(.95) rotate(-3deg)}30%,50%,70%,90%{transform:scale(1.08) rotate(3deg)}40%,60%,80%{transform:scale(1.08) rotate(-3deg)}}
+  @keyframes heartbeat{0%,100%{transform:scale(1)}14%{transform:scale(1.22)}28%{transform:scale(1)}42%{transform:scale(1.28)}70%{transform:scale(1)}}
+  @keyframes rotateScale{0%,100%{transform:rotate(0) scale(1)}50%{transform:rotate(180deg) scale(1.22)}}
+  @keyframes pendulum{0%,100%{transform:rotate(20deg)}50%{transform:rotate(-20deg)}}
+  @keyframes drift{0%,100%{transform:translate(0,0)}25%{transform:translate(35px,-25px)}50%{transform:translate(70px,5px)}75%{transform:translate(25px,18px)}}
+  @keyframes wave{0%,100%{transform:translate(0,0)}25%{transform:translate(28px,-18px)}50%{transform:translate(58px,0)}75%{transform:translate(28px,18px)}}
+  @keyframes skewX{0%,100%{transform:skewX(0)}50%{transform:skewX(14deg)}}
+  @keyframes skewY{0%,100%{transform:skewY(0)}50%{transform:skewY(14deg)}}
+  @keyframes flipX{0%,100%{transform:scaleX(1)}50%{transform:scaleX(-1)}}
+  @keyframes flipY{0%,100%{transform:scaleY(1)}50%{transform:scaleY(-1)}}
+  @keyframes growShrink{0%,100%{transform:scale(.8)}50%{transform:scale(1.2)}}
+  @keyframes liftDrop{0%,100%{transform:translateY(40px)}50%{transform:translateY(-60px)}}
+  @keyframes bounceRotate{0%,100%{transform:translateY(0) rotate(0)}25%{transform:translateY(-80px) rotate(12deg)}50%{transform:translateY(0) rotate(0)}75%{transform:translateY(-40px) rotate(-12deg)}}
+  @keyframes swingZoom{0%,100%{transform:rotate(0) scale(1)}25%{transform:rotate(10deg) scale(1.1)}75%{transform:rotate(-10deg) scale(.92)}}
+  @keyframes orbit{0%{transform:translate(70px,0) rotate(0)}25%{transform:translate(0,-70px) rotate(90deg)}50%{transform:translate(-70px,0) rotate(180deg)}75%{transform:translate(0,70px) rotate(270deg)}100%{transform:translate(70px,0) rotate(360deg)}}
+  @keyframes figure8{0%{transform:translate(0,0)}12.5%{transform:translate(32px,-22px)}25%{transform:translate(60px,0)}37.5%{transform:translate(32px,22px)}50%{transform:translate(0,0)}62.5%{transform:translate(-32px,-22px)}75%{transform:translate(-60px,0)}87.5%{transform:translate(-32px,22px)}100%{transform:translate(0,0)}}
+  @keyframes jellyPulse{0%,100%{transform:scale(1,1)}25%{transform:scale(1.16,.9)}50%{transform:scale(.92,1.12)}75%{transform:scale(1.08,.96)}}
+  @keyframes tremor{0%,100%{transform:translate(0,0)}20%{transform:translate(-3px,2px)}40%{transform:translate(3px,-2px)}60%{transform:translate(-2px,-2px)}80%{transform:translate(2px,2px)}}
+  @keyframes spiral{0%{transform:translate(0,0) scale(.8) rotate(0)}25%{transform:translate(26px,-26px) scale(.9) rotate(90deg)}50%{transform:translate(52px,0) scale(1) rotate(180deg)}75%{transform:translate(26px,26px) scale(1.1) rotate(270deg)}100%{transform:translate(0,0) scale(1.2) rotate(360deg)}}
+  @keyframes floatRotate{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-35px) rotate(18deg)}}
+  @keyframes bounceX{0%,100%{transform:translateX(0)}25%{transform:translateX(-110px)}50%{transform:translateX(0)}75%{transform:translateX(55px)}}
+  @keyframes snap{0%{transform:scale(.2);opacity:0}65%{transform:scale(1.18);opacity:1}100%{transform:scale(1);opacity:1}}
+  @keyframes fadeZoom{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.4}}
 </style>
 </head>
 <body>
-  <main class="wrap">
-    <section class="card">
-      <h1>Fast PNG to Lottie Maker</h1>
-      <p>Preview এখন CSS দিয়ে fast হবে। Download করলে Lottie JSON বানাবে।</p>
+<div class="page">
+  <div class="wrap">
+    <div class="panel sidebar">
+      <h2>Fast PNG to Lottie Maker</h2>
+      <p class="sub">Preview এখন CSS দিয়ে fast হবে। Download করলে browser-এই Lottie JSON বানাবে। <span class="pill" id="styleCount">0 styles</span></p>
 
-      <label for="file">Upload PNG</label>
-      <input id="file" type="file" accept="image/png,image/webp,image/jpeg" />
-      <div class="mini" id="fileInfo"></div>
-
-      <label for="anim">Animation</label>
-      <select id="anim"></select>
-
-      <div class="row">
-        <div><label for="speed">Speed</label><input type="range" id="speed" min="0.3" max="8" step="0.1" value="2"></div>
-        <div><label for="size">Size</label><input type="range" id="size" min="20" max="300" step="1" value="100"></div>
+      <div class="field">
+        <label for="file">Upload PNG / JPG / WebP</label>
+        <input type="file" id="file" accept="image/png,image/jpeg,image/webp" />
       </div>
 
-      <div class="row">
-        <div><label for="width">Width</label><input type="number" id="width" min="64" max="3000" value="800"></div>
-        <div><label for="height">Height</label><input type="number" id="height" min="64" max="3000" value="800"></div>
+      <div class="field">
+        <label for="anim">Animation</label>
+        <select id="anim"></select>
       </div>
 
-      <label for="bg">Background</label>
-      <input type="color" id="bg" value="#111827">
-
-      <label class="checkrow"><input type="checkbox" id="transparent" checked> Transparent background</label>
-
-      <label for="compress">Image Compress px</label>
-      <input type="number" id="compress" min="64" max="4096" value="384">
-      <div class="mini">PNG বড় হলে export file ছোট রাখার জন্য image resize হবে।</div>
-
-      <div class="footer-tools">
-        <button id="downloadBtn" disabled>Download Lottie JSON</button>
-        <button id="resetBtn" class="secondary" type="button">Reset</button>
+      <div class="grid2 field">
+        <div>
+          <label for="speed">Speed (seconds)</label>
+          <input type="range" id="speed" min="0.4" max="8" step="0.1" value="2">
+          <div class="mini"><span id="speedVal">2.0</span>s / cycle</div>
+        </div>
+        <div>
+          <label for="size">Size</label>
+          <input type="range" id="size" min="20" max="220" step="1" value="100">
+          <div class="mini"><span id="sizeVal">100</span>%</div>
+        </div>
       </div>
+
+      <div class="grid2 field">
+        <div>
+          <label for="width">Width</label>
+          <input type="number" id="width" min="16" max="4000" value="800">
+        </div>
+        <div>
+          <label for="height">Height</label>
+          <input type="number" id="height" min="16" max="4000" value="800">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="bg">Background</label>
+        <input type="color" id="bg" value="#0a1734">
+      </div>
+
+      <div class="field inline">
+        <input type="checkbox" id="transparent" checked>
+        <label for="transparent" style="margin:0">Transparent background</label>
+      </div>
+
+      <div class="field">
+        <label for="compressPx">Image Compress Max Size (px)</label>
+        <input type="number" id="compressPx" min="32" max="2048" value="384">
+      </div>
+
+      <button class="btn" id="downloadBtn" disabled>Download Lottie JSON</button>
       <div class="status" id="status">Ready</div>
-    </section>
-
-    <section class="card">
-      <h2>Fast Preview</h2>
-      <div class="stage" id="stage">
-        <div class="placeholder" id="placeholder">Upload image first</div>
-        <img id="previewImg" alt="preview" />
+      <div class="summary">
+        Fix included:<br>
+        1) size বড় করলেও spin only spin করবে, auto-zoom bug থাকবে না<br>
+        2) এখানে 40+ animation style আছে এবং dropdown-এ full list show করবে
       </div>
-    </section>
-  </main>
+    </div>
+
+    <div class="panel preview">
+      <h2>Fast Preview</h2>
+      <div class="previewShell" id="previewShell">
+        <div class="previewStage" id="previewStage">
+          <div class="placeholder" id="placeholder">Upload image first</div>
+          <div class="animShell" id="animShell" style="display:none; width:200px; height:200px;">
+            <div class="animTarget" id="animTarget" style="width:100%;height:100%;">
+              <img id="previewImg" alt="preview">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="summary">Preview আলাদা wrapper ব্যবহার করে, তাই size slider আর animation transform একে অন্যকে overwrite করবে না।</div>
+    </div>
+  </div>
+</div>
 
 <script>
-'use strict';
+(() => {
+  const animations = [
+    ['spin','Spin'],['spinReverse','Spin Reverse'],['bounce','Bounce'],['bounceSoft','Bounce Soft'],['pulse','Pulse'],['pulseSoft','Pulse Soft'],
+    ['float','Float'],['floatX','Float X'],['shake','Shake'],['shakeSoft','Shake Soft'],['swing','Swing'],['swingSoft','Swing Soft'],
+    ['wobble','Wobble'],['wobbleX','Wobble X'],['flash','Flash'],['blink','Blink'],['fadeInOut','Fade In Out'],['zoomInOut','Zoom In Out'],
+    ['zoomIn','Zoom In'],['zoomOut','Zoom Out'],['slideUpDown','Slide Up Down'],['slideLeftRight','Slide Left Right'],['roll','Roll'],['rollReverse','Roll Reverse'],
+    ['bob','Bob'],['hop','Hop'],['pop','Pop'],['breathe','Breathe'],['rubberBand','Rubber Band'],['jello','Jello'],['tada','Tada'],['heartbeat','Heartbeat'],
+    ['rotateScale','Rotate Scale'],['pendulum','Pendulum'],['drift','Drift'],['wave','Wave'],['skewX','Skew X'],['skewY','Skew Y'],['flipX','Flip X'],['flipY','Flip Y'],
+    ['growShrink','Grow Shrink'],['liftDrop','Lift Drop'],['bounceRotate','Bounce Rotate'],['swingZoom','Swing Zoom'],['orbit','Orbit'],['figure8','Figure 8'],
+    ['jellyPulse','Jelly Pulse'],['tremor','Tremor'],['spiral','Spiral'],['floatRotate','Float Rotate'],['bounceX','Bounce X'],['snap','Snap'],['fadeZoom','Fade Zoom']
+  ];
 
-const ANIMS = [
-  ['none','None'], ['spin','Spin'], ['spinReverse','Spin Reverse'], ['bounce','Bounce'], ['pulse','Pulse'], ['fade','Fade'],
-  ['shake','Shake'], ['swing','Swing'], ['wobble','Wobble'], ['flipX','Flip X'], ['flipY','Flip Y'], ['zoom','Zoom In Out'],
-  ['slideLeft','Slide Left'], ['slideRight','Slide Right'], ['slideUp','Slide Up'], ['slideDown','Slide Down'], ['orbit','Orbit'],
-  ['heartbeat','Heartbeat'], ['rubber','Rubber Band'], ['tada','Tada'], ['jello','Jello'], ['float','Float'], ['pop','Pop'], ['blink','Blink'],
-  ['diagonal','Diagonal Move'], ['rotateScale','Rotate Scale'], ['pendulum','Pendulum'], ['skew','Skew'], ['breathe','Breathe'], ['blurPulse','Blur Pulse'],
-  ['rotateIn','Rotate In'], ['roll','Roll'], ['wave','Wave'], ['vanish','Vanish'], ['drop','Drop In'], ['rise','Rise In'],
-  ['leftIn','Left In'], ['rightIn','Right In'], ['squeeze','Squeeze X'], ['stretch','Stretch Y'], ['zigzag','Zig Zag'], ['circleZoom','Circle Zoom'],
-  ['flash','Flash'], ['rotateBounce','Rotate Bounce']
-];
+  const $ = (id) => document.getElementById(id);
+  const fileEl = $('file');
+  const animEl = $('anim');
+  const speedEl = $('speed');
+  const sizeEl = $('size');
+  const widthEl = $('width');
+  const heightEl = $('height');
+  const bgEl = $('bg');
+  const transparentEl = $('transparent');
+  const compressEl = $('compressPx');
+  const downloadBtn = $('downloadBtn');
+  const statusEl = $('status');
+  const previewStage = $('previewStage');
+  const previewShell = $('previewShell');
+  const placeholder = $('placeholder');
+  const animShell = $('animShell');
+  const animTarget = $('animTarget');
+  const previewImg = $('previewImg');
+  const speedVal = $('speedVal');
+  const sizeVal = $('sizeVal');
+  const styleCount = $('styleCount');
 
-const el = id => document.getElementById(id);
-const file = el('file'), anim = el('anim'), speed = el('speed'), size = el('size'), width = el('width'), height = el('height'), bg = el('bg'), transparent = el('transparent'), compress = el('compress');
-const img = el('previewImg'), stage = el('stage'), placeholder = el('placeholder'), statusEl = el('status'), fileInfo = el('fileInfo'), downloadBtn = el('downloadBtn'), resetBtn = el('resetBtn');
+  let state = {
+    originalDataUrl: '',
+    dataUrl: '',
+    imageWidth: 0,
+    imageHeight: 0,
+    processedWidth: 0,
+    processedHeight: 0,
+  };
 
-let originalImage = null;
-let sourceDataUrl = '';
-let imageW = 0, imageH = 0;
+  animEl.innerHTML = animations.map(([v,n]) => `<option value="${v}">${n}</option>`).join('');
+  styleCount.textContent = `${animations.length} styles`;
 
-ANIMS.forEach(([value,label]) => {
-  const o = document.createElement('option'); o.value = value; o.textContent = label; anim.appendChild(o);
-});
-anim.value = 'spin';
+  const timingMap = {
+    bounce:'ease-in-out', bounceSoft:'ease-in-out', pulse:'ease-in-out', pulseSoft:'ease-in-out', float:'ease-in-out', floatX:'ease-in-out',
+    swing:'ease-in-out', swingSoft:'ease-in-out', wobble:'ease-in-out', wobbleX:'ease-in-out', fadeInOut:'ease-in-out', zoomInOut:'ease-in-out',
+    zoomIn:'ease-out', zoomOut:'ease-in', bob:'ease-in-out', hop:'ease-in-out', pop:'ease-out', breathe:'ease-in-out', rubberBand:'ease-in-out',
+    jello:'ease-in-out', tada:'ease-in-out', heartbeat:'ease-in-out', rotateScale:'ease-in-out', pendulum:'ease-in-out', drift:'ease-in-out',
+    wave:'linear', skewX:'ease-in-out', skewY:'ease-in-out', flipX:'ease-in-out', flipY:'ease-in-out', growShrink:'ease-in-out', liftDrop:'ease-in-out',
+    bounceRotate:'ease-in-out', swingZoom:'ease-in-out', orbit:'linear', figure8:'linear', jellyPulse:'ease-in-out', tremor:'linear', spiral:'linear',
+    floatRotate:'ease-in-out', bounceX:'ease-in-out', snap:'ease-out', fadeZoom:'ease-in-out'
+  };
 
-function setStatus(text){ statusEl.textContent = text; }
-function num(v, fallback){ const n = parseFloat(v); return Number.isFinite(n) ? n : fallback; }
-function clamp(v, min, max){ return Math.min(max, Math.max(min, v)); }
-function stageBg(){
-  stage.style.backgroundColor = transparent.checked ? '#1e293b' : bg.value;
-}
+  function setStatus(msg) { statusEl.textContent = msg; }
 
-function applyPreview(){
-  stageBg();
-  const dur = clamp(num(speed.value,2), .3, 8);
-  const scale = clamp(num(size.value,100), 20, 300);
-  img.style.width = scale + '%';
-  img.style.height = 'auto';
-  img.style.animation = 'none';
-  void img.offsetWidth;
-  if (anim.value !== 'none' && sourceDataUrl) {
-    img.style.animation = `${anim.value} ${dur}s infinite linear`;
+  function updatePreviewBackground() {
+    previewStage.style.background = transparentEl.checked ? 'transparent' : bgEl.value;
   }
-}
 
-async function loadImageData(fileObj){
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onerror = () => reject(new Error('File read failed'));
-    r.onload = () => {
-      const im = new Image();
-      im.onerror = () => reject(new Error('Image load failed'));
-      im.onload = () => resolve({im, dataUrl:r.result});
-      im.src = r.result;
-    };
-    r.readAsDataURL(fileObj);
-  });
-}
+  function fitBaseSize() {
+    if (!state.dataUrl) return {w:200,h:200};
+    const maxBox = 220;
+    const iw = state.processedWidth || state.imageWidth || 200;
+    const ih = state.processedHeight || state.imageHeight || 200;
+    const ratio = Math.min(maxBox / iw, maxBox / ih, 1);
+    return { w: Math.max(20, Math.round(iw * ratio)), h: Math.max(20, Math.round(ih * ratio)) };
+  }
 
-function resizeImageToDataUrl(im, maxPx){
-  const max = clamp(num(maxPx,384), 64, 4096);
-  let w = im.naturalWidth, h = im.naturalHeight;
-  const ratio = Math.min(1, max / Math.max(w,h));
-  w = Math.round(w * ratio); h = Math.round(h * ratio);
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
-  ctx.clearRect(0,0,w,h);
-  ctx.drawImage(im,0,0,w,h);
-  return {dataUrl:c.toDataURL('image/png'), w, h};
-}
+  function updatePreview() {
+    speedVal.textContent = Number(speedEl.value).toFixed(1);
+    sizeVal.textContent = sizeEl.value;
+    updatePreviewBackground();
 
-file.addEventListener('change', async e => {
-  try{
-    const f = e.target.files && e.target.files[0];
-    if(!f) return;
-    setStatus('Loading image...');
-    const loaded = await loadImageData(f);
-    originalImage = loaded.im;
-    const resized = resizeImageToDataUrl(originalImage, compress.value);
-    sourceDataUrl = resized.dataUrl;
-    imageW = resized.w; imageH = resized.h;
-    img.src = sourceDataUrl;
-    img.style.display = 'block';
+    if (!state.dataUrl) {
+      placeholder.style.display = 'block';
+      animShell.style.display = 'none';
+      downloadBtn.disabled = true;
+      return;
+    }
+
     placeholder.style.display = 'none';
+    animShell.style.display = 'flex';
     downloadBtn.disabled = false;
-    fileInfo.textContent = `${f.name} | original ${originalImage.naturalWidth}x${originalImage.naturalHeight} | export ${imageW}x${imageH}`;
-    setStatus('Ready');
-    applyPreview();
-  }catch(err){
-    console.error(err); setStatus('Image load error');
+
+    const base = fitBaseSize();
+    const scale = Number(sizeEl.value) / 100;
+    animShell.style.width = Math.max(12, Math.round(base.w * scale)) + 'px';
+    animShell.style.height = Math.max(12, Math.round(base.h * scale)) + 'px';
+
+    previewImg.src = state.dataUrl;
+    const anim = animEl.value;
+    const duration = Math.max(0.1, Number(speedEl.value));
+    animTarget.style.animation = 'none';
+    void animTarget.offsetWidth;
+    animTarget.style.animation = `${anim} ${duration}s infinite ${timingMap[anim] || 'linear'}`;
   }
-});
 
-[anim,speed,size,width,height,bg,transparent,compress].forEach(x => x.addEventListener('input', () => {
-  if (originalImage && x === compress) {
-    const resized = resizeImageToDataUrl(originalImage, compress.value);
-    sourceDataUrl = resized.dataUrl; imageW = resized.w; imageH = resized.h; img.src = sourceDataUrl;
-  }
-  applyPreview();
-}));
-
-resetBtn.addEventListener('click', () => {
-  anim.value='spin'; speed.value='2'; size.value='100'; width.value='800'; height.value='800'; bg.value='#111827'; transparent.checked=true; compress.value='384';
-  applyPreview(); setStatus('Ready');
-});
-
-function hold(v){ return {a:0,k:v}; }
-function kf(t, s, e){ return {t, s, e, i:{x:[0.833],y:[1]}, o:{x:[0.167],y:[0]}}; }
-function linearKf(t, s, e){ return {t, s, e, i:{x:[1],y:[1]}, o:{x:[0],y:[0]}}; }
-function percentScale(base, x=1, y=x){ return [base*x, base*y, 100]; }
-
-function buildAnimationKeys(name, frames, cw, ch, baseScale){
-  const cx = cw/2, cy = ch/2;
-  const keys = {
-    a: hold([imageW/2,imageH/2,0]),
-    p: hold([cx,cy,0]),
-    s: hold(percentScale(baseScale)),
-    r: hold(0),
-    o: hold(100)
-  };
-  const p0=[cx,cy,0], s0=percentScale(baseScale);
-  switch(name){
-    case 'spin': keys.r = {a:1,k:[linearKf(0,[0],[360]) , {...linearKf(frames,[360],[360]), h:1}]}; break;
-    case 'spinReverse': keys.r = {a:1,k:[linearKf(0,[360],[0]), {...linearKf(frames,[0],[0]), h:1}]}; break;
-    case 'bounce': keys.p = {a:1,k:[kf(0,p0,[cx,cy-130,0]), kf(frames/2,[cx,cy-130,0],p0), {...kf(frames,p0,p0),h:1}]}; break;
-    case 'pulse': keys.s = {a:1,k:[kf(0,s0,percentScale(baseScale,1.35)), kf(frames/2,percentScale(baseScale,1.35),s0), {...kf(frames,s0,s0),h:1}]}; break;
-    case 'fade': keys.o = {a:1,k:[kf(0,[100],[15]), kf(frames/2,[15],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'shake': keys.p = {a:1,k:[kf(0,p0,[cx-45,cy,0]), kf(frames*.2,[cx-45,cy,0],[cx+45,cy,0]), kf(frames*.4,[cx+45,cy,0],[cx-28,cy,0]), kf(frames*.6,[cx-28,cy,0],[cx+28,cy,0]), kf(frames*.8,[cx+28,cy,0],p0), {...kf(frames,p0,p0),h:1}]}; break;
-    case 'swing': keys.r = {a:1,k:[kf(0,[0],[24]), kf(frames*.2,[24],[-18]), kf(frames*.4,[-18],[12]), kf(frames*.6,[12],[-8]), kf(frames*.8,[-8],[0]), {...kf(frames,[0],[0]),h:1}]}; break;
-    case 'wobble': keys.p = {a:1,k:[kf(0,p0,[cx-40,cy,0]), kf(frames*.25,[cx-40,cy,0],[cx+30,cy,0]), kf(frames*.5,[cx+30,cy,0],[cx-20,cy,0]), kf(frames*.75,[cx-20,cy,0],p0), {...kf(frames,p0,p0),h:1}]}; keys.r = {a:1,k:[kf(0,[0],[-8]), kf(frames*.25,[-8],[6]), kf(frames*.5,[6],[-4]), kf(frames*.75,[-4],[0]), {...kf(frames,[0],[0]),h:1}]}; break;
-    case 'flipX': keys.s = {a:1,k:[kf(0,s0,percentScale(baseScale,1,-1)), kf(frames/2,percentScale(baseScale,1,-1),s0), {...kf(frames,s0,s0),h:1}]}; break;
-    case 'flipY': keys.s = {a:1,k:[kf(0,s0,percentScale(baseScale,-1,1)), kf(frames/2,percentScale(baseScale,-1,1),s0), {...kf(frames,s0,s0),h:1}]}; break;
-    case 'zoom': keys.s = {a:1,k:[kf(0,percentScale(baseScale,.7),percentScale(baseScale,1.45)), kf(frames/2,percentScale(baseScale,1.45),percentScale(baseScale,.7)), {...kf(frames,percentScale(baseScale,.7),percentScale(baseScale,.7)),h:1}]}; break;
-    case 'slideLeft': keys.p = {a:1,k:[kf(0,[cx+170,cy,0],[cx-170,cy,0]), kf(frames/2,[cx-170,cy,0],[cx+170,cy,0]), {...kf(frames,[cx+170,cy,0],[cx+170,cy,0]),h:1}]}; break;
-    case 'slideRight': keys.p = {a:1,k:[kf(0,[cx-170,cy,0],[cx+170,cy,0]), kf(frames/2,[cx+170,cy,0],[cx-170,cy,0]), {...kf(frames,[cx-170,cy,0],[cx-170,cy,0]),h:1}]}; break;
-    case 'slideUp': keys.p = {a:1,k:[kf(0,[cx,cy+150,0],[cx,cy-150,0]), kf(frames/2,[cx,cy-150,0],[cx,cy+150,0]), {...kf(frames,[cx,cy+150,0],[cx,cy+150,0]),h:1}]}; break;
-    case 'slideDown': keys.p = {a:1,k:[kf(0,[cx,cy-150,0],[cx,cy+150,0]), kf(frames/2,[cx,cy+150,0],[cx,cy-150,0]), {...kf(frames,[cx,cy-150,0],[cx,cy-150,0]),h:1}]}; break;
-    case 'orbit': keys.p = {a:1,k:[linearKf(0,[cx+120,cy,0],[cx,cy+120,0]), linearKf(frames*.25,[cx,cy+120,0],[cx-120,cy,0]), linearKf(frames*.5,[cx-120,cy,0],[cx,cy-120,0]), linearKf(frames*.75,[cx,cy-120,0],[cx+120,cy,0]), {...linearKf(frames,[cx+120,cy,0],[cx+120,cy,0]),h:1}]}; keys.r={a:1,k:[linearKf(0,[0],[360]), {...linearKf(frames,[360],[360]),h:1}]}; break;
-    case 'heartbeat': keys.s = {a:1,k:[kf(0,s0,percentScale(baseScale,1.25)), kf(frames*.15,percentScale(baseScale,1.25),s0), kf(frames*.3,s0,percentScale(baseScale,1.4)), kf(frames*.45,percentScale(baseScale,1.4),s0), {...kf(frames,s0,s0),h:1}]}; break;
-    case 'rubber': keys.s = {a:1,k:[kf(0,s0,percentScale(baseScale,1.35,.72)), kf(frames*.25,percentScale(baseScale,1.35,.72),percentScale(baseScale,.78,1.28)), kf(frames*.5,percentScale(baseScale,.78,1.28),percentScale(baseScale,1.12,.9)), kf(frames*.75,percentScale(baseScale,1.12,.9),s0), {...kf(frames,s0,s0),h:1}]}; break;
-    case 'tada': keys.s={a:1,k:[kf(0,s0,percentScale(baseScale,1.15)), kf(frames*.85,percentScale(baseScale,1.15),s0), {...kf(frames,s0,s0),h:1}]}; keys.r={a:1,k:[kf(0,[0],[-12]), kf(frames*.15,[-12],[12]), kf(frames*.3,[12],[-12]), kf(frames*.45,[-12],[12]), kf(frames*.6,[12],[-12]), kf(frames*.75,[-12],[0]), {...kf(frames,[0],[0]),h:1}]}; break;
-    case 'jello': keys.sk={a:1,k:[kf(0,[0],[-18]), kf(frames*.25,[-18],[14]), kf(frames*.5,[14],[-8]), kf(frames*.75,[-8],[0]), {...kf(frames,[0],[0]),h:1}]}; keys.sa=hold(0); break;
-    case 'float': keys.p={a:1,k:[kf(0,p0,[cx,cy-55,0]), kf(frames/2,[cx,cy-55,0],p0), {...kf(frames,p0,p0),h:1}]}; break;
-    case 'pop': keys.s={a:1,k:[kf(0,percentScale(baseScale,.1),percentScale(baseScale,1.25)), kf(frames*.45,percentScale(baseScale,1.25),percentScale(baseScale,.9)), kf(frames*.7,percentScale(baseScale,.9),s0), {...kf(frames,s0,s0),h:1}]}; keys.o={a:1,k:[kf(0,[0],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'blink': keys.o={a:1,k:[kf(0,[100],[100]), kf(frames*.48,[100],[0]), kf(frames*.5,[0],[0]), kf(frames*.7,[0],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'diagonal': keys.p={a:1,k:[kf(0,[cx-135,cy+105,0],[cx+135,cy-105,0]), kf(frames/2,[cx+135,cy-105,0],[cx-135,cy+105,0]), {...kf(frames,[cx-135,cy+105,0],[cx-135,cy+105,0]),h:1}]}; break;
-    case 'rotateScale': keys.r={a:1,k:[kf(0,[0],[180]), kf(frames/2,[180],[360]), {...kf(frames,[360],[360]),h:1}]}; keys.s={a:1,k:[kf(0,percentScale(baseScale,.8),percentScale(baseScale,1.45)), kf(frames/2,percentScale(baseScale,1.45),percentScale(baseScale,.8)), {...kf(frames,percentScale(baseScale,.8),percentScale(baseScale,.8)),h:1}]}; break;
-    case 'pendulum': keys.r={a:1,k:[kf(0,[-35],[35]), kf(frames/2,[35],[-35]), {...kf(frames,[-35],[-35]),h:1}]}; break;
-    case 'skew': keys.sk={a:1,k:[kf(0,[0],[22]), kf(frames/2,[22],[0]), {...kf(frames,[0],[0]),h:1}]}; keys.sa={a:1,k:[kf(0,[0],[8]), kf(frames/2,[8],[0]), {...kf(frames,[0],[0]),h:1}]}; break;
-    case 'breathe': keys.s={a:1,k:[kf(0,s0,percentScale(baseScale,1.18)), kf(frames/2,percentScale(baseScale,1.18),s0), {...kf(frames,s0,s0),h:1}]}; break;
-    case 'blurPulse': keys.o={a:1,k:[kf(0,[100],[62]), kf(frames/2,[62],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'rotateIn': keys.r={a:1,k:[kf(0,[-220],[0]), {...kf(frames,[0],[0]),h:1}]}; keys.s={a:1,k:[kf(0,percentScale(baseScale,.15),s0), {...kf(frames,s0,s0),h:1}]}; keys.o={a:1,k:[kf(0,[0],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'roll': keys.p={a:1,k:[linearKf(0,[cx-190,cy,0],[cx+190,cy,0]), {...linearKf(frames,[cx+190,cy,0],[cx+190,cy,0]),h:1}]}; keys.r={a:1,k:[linearKf(0,[-360],[360]), {...linearKf(frames,[360],[360]),h:1}]}; break;
-    case 'wave': keys.r={a:1,k:[kf(0,[0],[25]), kf(frames*.15,[25],[-15]), kf(frames*.3,[-15],[18]), kf(frames*.45,[18],[-9]), kf(frames*.6,[-9],[0]), {...kf(frames,[0],[0]),h:1}]}; break;
-    case 'vanish': keys.s={a:1,k:[kf(0,s0,percentScale(baseScale,0.01)), {...kf(frames,percentScale(baseScale,0.01),percentScale(baseScale,0.01)),h:1}]}; keys.o={a:1,k:[kf(0,[100],[0]), {...kf(frames,[0],[0]),h:1}]}; break;
-    case 'drop': keys.p={a:1,k:[kf(0,[cx,cy-190,0],[cx,cy+25,0]), kf(frames*.6,[cx,cy+25,0],[cx,cy-10,0]), kf(frames*.8,[cx,cy-10,0],p0), {...kf(frames,p0,p0),h:1}]}; keys.o={a:1,k:[kf(0,[0],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'rise': keys.p={a:1,k:[kf(0,[cx,cy+190,0],p0), {...kf(frames,p0,p0),h:1}]}; keys.o={a:1,k:[kf(0,[0],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'leftIn': keys.p={a:1,k:[kf(0,[cx-260,cy,0],p0), {...kf(frames,p0,p0),h:1}]}; keys.o={a:1,k:[kf(0,[0],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'rightIn': keys.p={a:1,k:[kf(0,[cx+260,cy,0],p0), {...kf(frames,p0,p0),h:1}]}; keys.o={a:1,k:[kf(0,[0],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'squeeze': keys.s={a:1,k:[kf(0,s0,percentScale(baseScale,1.55,.55)), kf(frames/2,percentScale(baseScale,1.55,.55),s0), {...kf(frames,s0,s0),h:1}]}; break;
-    case 'stretch': keys.s={a:1,k:[kf(0,s0,percentScale(baseScale,.58,1.55)), kf(frames/2,percentScale(baseScale,.58,1.55),s0), {...kf(frames,s0,s0),h:1}]}; break;
-    case 'zigzag': keys.p={a:1,k:[kf(0,p0,[cx+95,cy-80,0]), kf(frames*.25,[cx+95,cy-80,0],[cx-95,cy-15,0]), kf(frames*.5,[cx-95,cy-15,0],[cx+80,cy+80,0]), kf(frames*.75,[cx+80,cy+80,0],p0), {...kf(frames,p0,p0),h:1}]}; break;
-    case 'circleZoom': keys.p={a:1,k:[linearKf(0,[cx+80,cy,0],[cx,cy+80,0]), linearKf(frames*.25,[cx,cy+80,0],[cx-80,cy,0]), linearKf(frames*.5,[cx-80,cy,0],[cx,cy-80,0]), linearKf(frames*.75,[cx,cy-80,0],[cx+80,cy,0]), {...linearKf(frames,[cx+80,cy,0],[cx+80,cy,0]),h:1}]}; keys.s={a:1,k:[kf(0,percentScale(baseScale,.85),percentScale(baseScale,1.35)), kf(frames*.5,percentScale(baseScale,1.35),percentScale(baseScale,.85)), {...kf(frames,percentScale(baseScale,.85),percentScale(baseScale,.85)),h:1}]}; break;
-    case 'flash': keys.o={a:1,k:[kf(0,[100],[10]), kf(frames*.25,[10],[100]), kf(frames*.5,[100],[10]), kf(frames*.75,[10],[100]), {...kf(frames,[100],[100]),h:1}]}; break;
-    case 'rotateBounce': keys.p={a:1,k:[kf(0,p0,[cx,cy-120,0]), kf(frames/2,[cx,cy-120,0],p0), {...kf(frames,p0,p0),h:1}]}; keys.r={a:1,k:[kf(0,[0],[180]), kf(frames/2,[180],[360]), {...kf(frames,[360],[360]),h:1}]}; break;
-    default: break;
-  }
-  return keys;
-}
-
-function buildLottie(){
-  const cw = Math.round(clamp(num(width.value,800),64,3000));
-  const ch = Math.round(clamp(num(height.value,800),64,3000));
-  const fr = 60;
-  const seconds = clamp(num(speed.value,2), .3, 8);
-  const op = Math.round(fr * seconds);
-  const baseScale = clamp(num(size.value,100),20,300) / 100 * Math.min(cw / imageW, ch / imageH) * 100 * .75;
-  const ks = buildAnimationKeys(anim.value, op, cw, ch, baseScale);
-  const lottie = {
-    v:'5.7.4', fr, ip:0, op, w:cw, h:ch, nm:'PNG Animation Maker Export', ddd:0,
-    assets:[{id:'image_0', w:imageW, h:imageH, u:'', p:sourceDataUrl, e:1}],
-    layers:[{
-      ddd:0, ind:1, ty:2, nm:'PNG Image', refId:'image_0', sr:1, ks, ao:0,
-      ip:0, op, st:0, bm:0
-    }],
-    markers:[]
-  };
-  if (!transparent.checked) {
-    lottie.layers.unshift({
-      ddd:0, ind:2, ty:1, nm:'Background', sr:1,
-      ks:{o:hold(100), r:hold(0), p:hold([cw/2,ch/2,0]), a:hold([cw/2,ch/2,0]), s:hold([100,100,100])},
-      ao:0, sw:cw, sh:ch, sc:bg.value, ip:0, op, st:0, bm:0
+  function resizeDataUrl(dataUrl, maxDim) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        const originalW = w;
+        const originalH = h;
+        if (maxDim > 0) {
+          const ratio = Math.min(1, maxDim / Math.max(w, h));
+          w = Math.max(1, Math.round(w * ratio));
+          h = Math.max(1, Math.round(h * ratio));
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,w,h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve({ dataUrl: canvas.toDataURL('image/png'), originalW, originalH, w, h });
+      };
+      img.onerror = reject;
+      img.src = dataUrl;
     });
   }
-  return lottie;
-}
 
-function downloadJSON(){
-  if(!sourceDataUrl){ setStatus('Upload image first'); return; }
-  try{
-    setStatus('Generating JSON...');
-    const json = JSON.stringify(buildLottie());
-    const blob = new Blob([json], {type:'application/json'});
+  fileEl.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setStatus('Loading image...');
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const originalDataUrl = reader.result;
+          const compressed = await resizeDataUrl(originalDataUrl, parseInt(compressEl.value || '384', 10));
+          state.originalDataUrl = originalDataUrl;
+          state.dataUrl = compressed.dataUrl;
+          state.imageWidth = compressed.originalW;
+          state.imageHeight = compressed.originalH;
+          state.processedWidth = compressed.w;
+          state.processedHeight = compressed.h;
+          updatePreview();
+          setStatus(`Image ready (${compressed.w}x${compressed.h})`);
+        } catch (err) {
+          console.error(err);
+          setStatus('Image process failed');
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      setStatus('Image load failed');
+    }
+  });
+
+  [animEl, speedEl, sizeEl, widthEl, heightEl, bgEl, transparentEl, compressEl].forEach(el => {
+    el.addEventListener('input', updatePreview);
+    el.addEventListener('change', updatePreview);
+  });
+
+  function ease1(){ return {i:{x:[0.667],y:[1]},o:{x:[0.333],y:[0]}}; }
+  function ease2(n=3){ return {i:{x:new Array(n).fill(0.667),y:new Array(n).fill(1)},o:{x:new Array(n).fill(0.333),y:new Array(n).fill(0)}}; }
+
+  function kf1(values, total) {
+    const out=[];
+    const last=values.length-1;
+    const step = total / last;
+    for (let i=0;i<values.length;i++) {
+      const t = Math.round(i * step);
+      if (i < last) out.push(Object.assign({t, s:[values[i]], e:[values[i+1]]}, ease1()));
+      else out.push({t, s:[values[i]]});
+    }
+    return out;
+  }
+
+  function kf2(values, total) {
+    const out=[];
+    const last=values.length-1;
+    const step = total / last;
+    for (let i=0;i<values.length;i++) {
+      const t = Math.round(i * step);
+      const current = [values[i][0], values[i][1], 0];
+      if (i < last) {
+        const next = [values[i+1][0], values[i+1][1], 0];
+        out.push(Object.assign({t, s:current, e:next}, ease2(3)));
+      } else out.push({t, s:current});
+    }
+    return out;
+  }
+
+  function kfS(values, total) {
+    const out=[];
+    const last=values.length-1;
+    const step = total / last;
+    for (let i=0;i<values.length;i++) {
+      const t = Math.round(i * step);
+      const current = [values[i][0], values[i][1], 100];
+      if (i < last) {
+        const next = [values[i+1][0], values[i+1][1], 100];
+        out.push(Object.assign({t, s:current, e:next}, ease2(3)));
+      } else out.push({t, s:current});
+    }
+    return out;
+  }
+
+  function cycleFrames() {
+    return Math.max(24, Math.round(Number(speedEl.value || 2) * 60));
+  }
+
+  function exportMotion(name, w, h) {
+    const total = cycleFrames();
+    const cx = Math.round(w / 2);
+    const cy = Math.round(h / 2);
+    const dx = Math.round(Math.min(w, h) * 0.10) || 40;
+    const dy = Math.round(Math.min(w, h) * 0.12) || 48;
+    const motion = {
+      o:{a:0,k:100},
+      r:{a:0,k:0},
+      p:{a:0,k:[cx,cy,0]},
+      s:{a:0,k:[100,100,100]}
+    };
+    const setPos = vals => motion.p = {a:1,k:kf2(vals,total)};
+    const setRot = vals => motion.r = {a:1,k:kf1(vals,total)};
+    const setOpa = vals => motion.o = {a:1,k:kf1(vals,total)};
+    const setSca = vals => motion.s = {a:1,k:kfS(vals,total)};
+
+    switch(name){
+      case 'spin': setRot([0,360]); break;
+      case 'spinReverse': setRot([0,-360]); break;
+      case 'bounce': setPos([[cx,cy],[cx,cy-dy*2],[cx,cy],[cx,cy-dy],[cx,cy]]); break;
+      case 'bounceSoft': setPos([[cx,cy],[cx,cy-dy],[cx,cy]]); break;
+      case 'pulse': setSca([[100,100],[120,120],[100,100]]); break;
+      case 'pulseSoft': setSca([[100,100],[110,110],[100,100]]); break;
+      case 'float': setPos([[cx,cy],[cx,cy-dy],[cx,cy]]); break;
+      case 'floatX': setPos([[cx,cy],[cx+dx,cy],[cx,cy]]); break;
+      case 'shake': setPos([[cx,cy],[cx-18,cy],[cx+18,cy],[cx-12,cy],[cx+12,cy],[cx,cy]]); break;
+      case 'shakeSoft': setPos([[cx,cy],[cx-8,cy],[cx+8,cy],[cx-6,cy],[cx+6,cy],[cx,cy]]); break;
+      case 'swing': setRot([0,12,0,-12,0]); break;
+      case 'swingSoft': setRot([0,6,0,-6,0]); break;
+      case 'wobble': setPos([[cx,cy],[cx-18,cy],[cx+14,cy],[cx-12,cy],[cx+10,cy],[cx,cy]]); motion.r = {a:1,k:kf1([0,-5,4,-3,2,0], total)}; break;
+      case 'wobbleX': setPos([[cx,cy],[cx-28,cy],[cx+22,cy],[cx-16,cy],[cx+10,cy],[cx,cy]]); break;
+      case 'flash': setOpa([100,20,100,20,100]); break;
+      case 'blink': setOpa([100,0,100]); break;
+      case 'fadeInOut': setOpa([100,35,100]); break;
+      case 'zoomInOut': setSca([[100,100],[130,130],[100,100]]); break;
+      case 'zoomIn': setSca([[70,70],[100,100]]); break;
+      case 'zoomOut': setSca([[130,130],[100,100]]); break;
+      case 'slideUpDown': setPos([[cx,cy+dy],[cx,cy-dy],[cx,cy+dy]]); break;
+      case 'slideLeftRight': setPos([[cx-dx*2,cy],[cx+dx*2,cy],[cx-dx*2,cy]]); break;
+      case 'roll': setPos([[cx-dx*2,cy],[cx+dx*2,cy]]); setRot([0,360]); break;
+      case 'rollReverse': setPos([[cx+dx*2,cy],[cx-dx*2,cy]]); setRot([0,-360]); break;
+      case 'bob': setPos([[cx,cy],[cx,cy-18],[cx,cy],[cx,cy-8],[cx,cy]]); break;
+      case 'hop': setPos([[cx,cy],[cx,cy-dy*2.4],[cx,cy]]); break;
+      case 'pop': setSca([[40,40],[120,120],[100,100]]); break;
+      case 'breathe': setSca([[100,100],[106,106],[100,100]]); motion.o = {a:1,k:kf1([100,92,100], total)}; break;
+      case 'rubberBand': setSca([[100,100],[125,75],[75,125],[115,85],[100,100]]); break;
+      case 'jello': setRot([0,-8,6,-4,3,0]); setSca([[100,100],[108,96],[96,104],[104,98],[100,100]]); break;
+      case 'tada': setRot([0,-3,3,-3,3,0]); setSca([[100,100],[95,95],[108,108],[108,108],[108,108],[100,100]]); break;
+      case 'heartbeat': setSca([[100,100],[122,122],[100,100],[128,128],[100,100]]); break;
+      case 'rotateScale': setRot([0,180,360]); setSca([[100,100],[122,122],[100,100]]); break;
+      case 'pendulum': setRot([20,-20,20]); break;
+      case 'drift': setPos([[cx,cy],[cx+35,cy-25],[cx+70,cy+5],[cx+25,cy+18],[cx,cy]]); break;
+      case 'wave': setPos([[cx,cy],[cx+28,cy-18],[cx+58,cy],[cx+28,cy+18],[cx,cy]]); break;
+      case 'skewX': setSca([[100,100],[120,100],[100,100]]); break;
+      case 'skewY': setSca([[100,100],[100,120],[100,100]]); break;
+      case 'flipX': setSca([[100,100],[-100,100],[100,100]]); break;
+      case 'flipY': setSca([[100,100],[100,-100],[100,100]]); break;
+      case 'growShrink': setSca([[80,80],[120,120],[80,80]]); break;
+      case 'liftDrop': setPos([[cx,cy+40],[cx,cy-60],[cx,cy+40]]); break;
+      case 'bounceRotate': setPos([[cx,cy],[cx,cy-80],[cx,cy],[cx,cy-40],[cx,cy]]); setRot([0,12,0,-12,0]); break;
+      case 'swingZoom': setRot([0,10,0,-10,0]); setSca([[100,100],[110,110],[100,100],[92,92],[100,100]]); break;
+      case 'orbit': setPos([[cx+70,cy],[cx,cy-70],[cx-70,cy],[cx,cy+70],[cx+70,cy]]); setRot([0,90,180,270,360]); break;
+      case 'figure8': setPos([[cx,cy],[cx+32,cy-22],[cx+60,cy],[cx+32,cy+22],[cx,cy],[cx-32,cy-22],[cx-60,cy],[cx-32,cy+22],[cx,cy]]); break;
+      case 'jellyPulse': setSca([[100,100],[116,90],[92,112],[108,96],[100,100]]); break;
+      case 'tremor': setPos([[cx,cy],[cx-3,cy+2],[cx+3,cy-2],[cx-2,cy-2],[cx+2,cy+2],[cx,cy]]); break;
+      case 'spiral': setPos([[cx,cy],[cx+26,cy-26],[cx+52,cy],[cx+26,cy+26],[cx,cy]]); setRot([0,90,180,270,360]); setSca([[80,80],[90,90],[100,100],[110,110],[120,120]]); break;
+      case 'floatRotate': setPos([[cx,cy],[cx,cy-35],[cx,cy]]); setRot([0,18,0]); break;
+      case 'bounceX': setPos([[cx,cy],[cx-dx*2.2,cy],[cx,cy],[cx+dx,cy],[cx,cy]]); break;
+      case 'snap': setSca([[20,20],[118,118],[100,100]]); setOpa([0,100,100]); break;
+      case 'fadeZoom': setSca([[100,100],[125,125],[100,100]]); setOpa([100,40,100]); break;
+      default: setRot([0,360]);
+    }
+    return { total, motion };
+  }
+
+  function dataUrlToBase64(dataUrl) {
+    return dataUrl.split(',')[1] || '';
+  }
+
+  function buildLottieJson() {
+    if (!state.dataUrl) throw new Error('No image selected');
+    const w = Math.max(16, parseInt(widthEl.value || '800', 10));
+    const h = Math.max(16, parseInt(heightEl.value || '800', 10));
+    const imgW = state.processedWidth || state.imageWidth || 200;
+    const imgH = state.processedHeight || state.imageHeight || 200;
+    const bgColor = transparentEl.checked ? null : bgEl.value;
+    const sizeFactor = Math.max(0.1, Number(sizeEl.value || '100') / 100);
+    const { total, motion } = exportMotion(animEl.value, w, h);
+    if (motion.s.a === 0) {
+      motion.s.k = [motion.s.k[0] * sizeFactor, motion.s.k[1] * sizeFactor, 100];
+    } else {
+      motion.s.k = motion.s.k.map((kf, idx) => {
+        if (idx === motion.s.k.length - 1 && kf.s) return { ...kf, s:[kf.s[0]*sizeFactor, kf.s[1]*sizeFactor, 100] };
+        if (kf.s && kf.e) return { ...kf, s:[kf.s[0]*sizeFactor, kf.s[1]*sizeFactor, 100], e:[kf.e[0]*sizeFactor, kf.e[1]*sizeFactor, 100] };
+        return kf;
+      });
+    }
+
+    const base64 = dataUrlToBase64(state.dataUrl);
+    const layers = [];
+    if (bgColor) {
+      const r = parseInt(bgColor.slice(1,3),16)/255;
+      const g = parseInt(bgColor.slice(3,5),16)/255;
+      const b = parseInt(bgColor.slice(5,7),16)/255;
+      layers.push({
+        ddd:0, ind:1, ty:1, nm:'Background', sr:1,
+        ks:{o:{a:0,k:100}, r:{a:0,k:0}, p:{a:0,k:[w/2,h/2,0]}, a:{a:0,k:[0,0,0]}, s:{a:0,k:[100,100,100]}},
+        shapes:[
+          {ty:'rc', d:1, s:{a:0,k:[w,h]}, p:{a:0,k:[0,0]}, r:{a:0,k:0}, nm:'Rect'},
+          {ty:'fl', c:{a:0,k:[r,g,b,1]}, o:{a:0,k:100}, r:1, nm:'Fill'},
+          {ty:'tr', p:{a:0,k:[0,0]}, a:{a:0,k:[0,0]}, s:{a:0,k:[100,100]}, r:{a:0,k:0}, o:{a:0,k:100}, sk:{a:0,k:0}, sa:{a:0,k:0}}
+        ],
+        ip:0, op:total, st:0, bm:0
+      });
+    }
+
+    const imageLayerInd = layers.length + 1;
+    layers.push({
+      ddd:0,
+      ind:imageLayerInd,
+      ty:2,
+      nm:'Image Layer',
+      refId:'image_0',
+      sr:1,
+      ks:{
+        o:motion.o,
+        r:motion.r,
+        p:motion.p,
+        a:{a:0,k:[imgW/2,imgH/2,0]},
+        s:motion.s
+      },
+      ip:0,
+      op:total,
+      st:0,
+      bm:0
+    });
+
+    return {
+      v:'5.7.15',
+      fr:60,
+      ip:0,
+      op:total,
+      w,
+      h,
+      nm:'PNG to Lottie Export',
+      ddd:0,
+      assets:[{
+        id:'image_0',
+        w:imgW,
+        h:imgH,
+        u:'',
+        p:'data:image/png;base64,' + base64,
+        e:1
+      }],
+      layers,
+      meta:{
+        generator:'Fast PNG to Lottie Maker',
+        animation:animEl.value,
+        transparent:transparentEl.checked,
+        speedSeconds:Number(speedEl.value),
+        sizePercent:Number(sizeEl.value)
+      }
+    };
+  }
+
+  function downloadJson(data, filename) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    const cleanName = (anim.value || 'animation').replace(/[^a-z0-9_-]/gi,'_').toLowerCase();
-    a.download = `png-${cleanName}-lottie.json`;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    setStatus('Downloaded');
-  }catch(err){ console.error(err); setStatus('JSON export error'); }
-}
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
-downloadBtn.addEventListener('click', downloadJSON);
-applyPreview();
+  downloadBtn.addEventListener('click', () => {
+    try {
+      const json = buildLottieJson();
+      const safeName = (animEl.value || 'animation').replace(/[^a-z0-9_-]/gi,'_');
+      downloadJson(json, `lottie_${safeName}.json`);
+      setStatus(`Downloaded: lottie_${safeName}.json`);
+    } catch (err) {
+      console.error(err);
+      setStatus('Download failed: ' + err.message);
+    }
+  });
+
+  updatePreview();
+})();
 </script>
 </body>
 </html>
 HTML
+}
 
-chown -R www-data:www-data "$APP_DIR" 2>/dev/null || chown -R nginx:nginx "$APP_DIR" 2>/dev/null || true
-chmod -R 755 "$APP_DIR"
+post_message() {
+  echo ""
+  echo "==========================================="
+  echo "Lottie maker installed successfully"
+  echo "Path: $APP_DIR"
+  echo "URL : http://YOUR_SERVER_IP/lottie/"
+  echo "==========================================="
+  echo ""
+}
 
-# Open firewall if UFW/firewalld is active.
-if command -v ufw >/dev/null 2>&1; then
-  ufw allow 80/tcp >/dev/null 2>&1 || true
-  ufw allow 443/tcp >/dev/null 2>&1 || true
-fi
-if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-  firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
-  firewall-cmd --permanent --add-service=https >/dev/null 2>&1 || true
-  firewall-cmd --reload >/dev/null 2>&1 || true
-fi
-
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl restart nginx >/dev/null 2>&1 || true
-fi
-
-IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
-echo ""
-echo "Done!"
-echo "Folder: $APP_DIR"
-echo "Open:   http://${IP:-YOUR_SERVER_IP}/lottie/"
-echo ""
-echo "If it does not open, check VPS firewall/security group and allow port 80."
+need_root
+install_nginx
+write_index
+systemctl restart nginx || true
+post_message
